@@ -4,11 +4,20 @@ version = "0.1.1"
 # what?
 edition = "2024"
 
+authors = ["Michal Maruska <mmaruska@gmail.com>"]
+license = "MIT OR Apache-2.0"
+description = "A tool to rebase a hierarchy of local development commits"
+readme = "readme.md"
+homepage = "https://github.com/MichalMaruska/discover-graph"
+repository = "https://github.com/MichalMaruska/discover-graph"
+keywords = ["graph"]
+categories = ["graph"]
+
 [dependencies]
 fixedbitset = "0.5.7"
 petgraph = "0.8.2"
 tracing = "0.1.41"
-
+# todo: use workspace
 
 # Debian https://wiki.debian.org/Rust
 [source]
