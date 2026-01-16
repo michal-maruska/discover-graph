@@ -10,7 +10,7 @@ use tracing::debug;
 
 // ::crate::    global paths cannot start with `crate`
 use crate::dynamic_bit_set::DynamicBitSet;
-use crate::GraphProvider;
+use crate::graph_provider::GraphProvider;
 
 
 /// Dynamic graph wrapper that implements IntoNeighbors with on-demand discovery
