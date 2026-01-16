@@ -44,16 +44,16 @@ where
     }
 
     /// Get or create a node in the graph for the given vertex
-    fn get_or_create_node(&self, vertex: T) -> NodeIndex {
+    fn get_or_create_node(&self, vertex: T) -> NodeIndex { // why not &T ? we can clone fixme!
         let mut vertex_to_node = self.vertex_to_node.borrow_mut();
-        if let Some(&node_idx) = vertex_to_node.get(&vertex) {
-            node_idx
-        } else {
-            let mut graph = self.graph.borrow_mut();
-            let node_idx = graph.add_node(vertex.clone()); // so 2 copies!
-            vertex_to_node.insert(vertex, node_idx);
-            node_idx
-        }
+        let e = vertex_to_node.entry(vertex.clone()).or_insert_with
+            (
+                move || {
+                    let mut graph = self.graph.borrow_mut();
+                    let node_idx = graph.add_node(vertex);
+                    node_idx
+                });
+        return *e;
     }
 
     /// Discover neighbors for a vertex and add them to the graph
