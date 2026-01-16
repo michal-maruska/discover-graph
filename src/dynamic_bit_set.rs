@@ -67,28 +67,32 @@ where
 
 
 
-#[test]
-fn test_two_powers() {
-    let mut b = DynamicBitSet::new();
-    b.reset();
-    b.clear();
+#[cfg(test)]
+mod test {
+    use super::*;
 
-    let base: usize = 2;
-    for i in 1..8 {
-        b.visit(base.pow(i) );
-    }
+    #[test]
+    fn test_grow_bitset() {
+        let mut b = DynamicBitSet::new();
+        b.reset();
+        b.clear();
 
-    let mut visited: Vec<usize> = vec![];
-
-    assert_eq!(b.len(), 129);
-
-    for j in 1..b.len() {
-        if b.is_visited(&j) {
-            visited.push(j)
+        let base: usize = 2;
+        for i in 1..8 {
+            b.visit(base.pow(i) );
         }
-    }
-    assert_eq!(visited, [2,4,8,16,32,64,128]);
+        assert_eq!(b.len(), 129);
 
-    b.reset(); // still:
-    assert_eq!(b.len(), 129);
+        let mut visited: Vec<usize> = vec![];
+        for j in 1..b.len() {
+            if b.is_visited(&j) {
+                visited.push(j)
+            }
+        }
+        assert_eq!(visited, [2,4,8,16,32,64,128]);
+
+        b.reset(); // still:
+        // b.clear();
+        assert_eq!(b.len(), 129);
+    }
 }
