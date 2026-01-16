@@ -2,6 +2,9 @@ use petgraph::visit::VisitMap;
 use petgraph::stable_graph::{IndexType};
 use fixedbitset::FixedBitSet;
 
+// Implement VisitMap trait for a new type - DynamicBitSet
+
+
 
 /// Dynamic bit set that wraps FixedBitSet and can grow as needed
 #[derive(Clone)]
@@ -53,7 +56,6 @@ where
     fn is_visited(&self, node_idx: &Ix) -> bool {
         let idx = node_idx.index();
         self.inner.contains(idx)
-        // idx < self.inner.len() && self.inner[idx]
     }
 
     fn unvisit(&mut self, x: Ix) -> bool {
