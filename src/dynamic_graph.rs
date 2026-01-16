@@ -48,7 +48,8 @@ where
         let mut vertex_to_node = self.vertex_to_node.borrow_mut();
         let e = vertex_to_node.entry(vertex.clone()).or_insert_with
             (
-                move || {
+                // we move vertex here: Can we do otherwise?
+                || {
                     let mut graph = self.graph.borrow_mut();
                     let node_idx = graph.add_node(vertex);
                     node_idx
