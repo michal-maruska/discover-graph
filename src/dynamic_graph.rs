@@ -158,7 +158,7 @@ where
     T: Clone + Eq + Hash + std::fmt::Debug,
     P: GraphProvider<T>,
 {
-    graph: &'a DynamicGraph<T, P>,
+    d_graph: &'a DynamicGraph<T, P>,
     inner: petgraph::stable_graph::WalkNeighbors<DefaultIx>, // petgraph::Directed  Neighbors
     node_idx: NodeIndex,
     discovered: bool,
@@ -175,14 +175,13 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         // Trigger discovery on first access
         if !self.discovered {
-            self.graph.discover_if_needed(self.node_idx);
+            self.d_graph.discover_if_needed(self.node_idx);
             self.discovered = true;
 
-            //
-            self.inner = self.graph.graph.borrow().neighbors(self.node_idx).detach();
+            self.inner = self.d_graph.graph.borrow().neighbors(self.node_idx).detach();
         }
 
-        self.inner.next_node(&*self.graph.graph.borrow()) // wtf!
+        self.inner.next_node(&*self.d_graph.graph.borrow()) // wtf!
     }
 }
 
@@ -196,7 +195,7 @@ where
 
     fn neighbors(self, node_idx: Self::NodeId) -> Self::Neighbors {
         DynamicNeighbors {
-            graph: self,
+            d_graph: self,
             inner: self.graph.borrow().neighbors(node_idx).detach(),
             node_idx,
             discovered: false,
