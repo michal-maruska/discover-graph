@@ -13,19 +13,25 @@ use crate::dynamic_bit_set::DynamicBitSet;
 use crate::graph_provider::GraphProvider;
 
 
-/// Dynamic graph wrapper that implements IntoNeighbors with on-demand discovery
+/// Dynamic graph wrapper that satisfies the trait requirements of petgraph's
+/// implements IntoNeighbors with on-demand discovery
 pub struct DynamicGraph<T, P>
 where
+    // Vertex type:
     T: Clone + Eq + Hash + std::fmt::Debug,
     P: GraphProvider<T>,
 {
     graph: RefCell<StableDiGraph<T, ()>>,
+
     // mmc: why T and not &T ? cannot we share it with graph?
     pub(crate) vertex_to_node: RefCell<HashMap<T, NodeIndex>>,
     // transforming external nodes to Graph vertices.
-    // Graph provides the reverse. But why 2 copies of T?
+    // `graph' provides the reverse. But why 2 copies of T?
 
-    discovered: RefCell<HashSet<T>>, // why?   discover_if_needed...have we invoked provider?
+    // vertex_to_node not sufficient?
+    //why?   discover_if_needed...
+    // why is this from &T, not NodeIndex?
+    discovered: RefCell<HashSet<T>>, // = have we invoked `provider'?
     pub(crate) provider: RefCell<P>,
 }
 
@@ -45,6 +51,7 @@ where
 
     /// Get or create a node in the graph for the given vertex
     fn get_or_create_node(&self, vertex: T) -> NodeIndex { // why not &T ? we can clone fixme!
+        // we keep 2 maps!
         let mut vertex_to_node = self.vertex_to_node.borrow_mut();
         let e = vertex_to_node.entry(vertex.clone()).or_insert_with
             (
@@ -57,8 +64,9 @@ where
         return *e;
     }
 
-    /// Discover neighbors for a vertex and add them to the graph
+    /// Given vertex, discover its neighbors and add them to the graph
     /// This is called by the IntoNeighbors implementation
+    // explode node: register all edges out (along with the vertices-neighbors).
     fn discover_if_needed(&self, node_idx: NodeIndex) {
         // Get the vertex from the node
         let vertex = {
@@ -67,6 +75,7 @@ where
         };
 
         // Check if already discovered
+        // why is this from &T, not NodeIndex?
         {
             let discovered = self.discovered.borrow();
             if discovered.contains(&vertex) {
@@ -80,7 +89,7 @@ where
         // Mark as discovered
         self.discovered.borrow_mut().insert(vertex.clone());
 
-        debug!("Dynamically discovering vertex {:?} with {} neighbors", vertex, neighbors.len());
+        debug!("Discovering vertex {:?} with {} neighbors", vertex, neighbors.len());
 
         // Add neighbors to graph
         for neighbor in neighbors {
@@ -88,16 +97,17 @@ where
                 // external node -> graph node
                 let neighbor_node = self.get_or_create_node(neighbor.clone());
 
-                // Add edge if it doesn't exist
+                // Add edge if not yet registered
                 let mut graph = self.graph.borrow_mut();
                 if graph.find_edge(node_idx, neighbor_node).is_none() {
-                    debug!("Dynamically adding edge");
+                    debug!("Adding edge");
                     graph.add_edge(node_idx, neighbor_node, ()); // could add a name/weight
                 }
             }
         }
     }
 
+    // seed
     pub fn add_start_vertex(&self, vertex: T) -> Option<NodeIndex> {
         if self.provider.borrow_mut().vertex_exists(&vertex) {
             Some(self.get_or_create_node(vertex))
@@ -185,7 +195,7 @@ where
     }
 }
 
-// Implement IntoNeighbors for our wrapper - this is the key!
+// Implement IntoNeighbors for our &wrapper - this is the key!
 impl<'a, T, P> IntoNeighbors for &'a DynamicGraph<T, P>
 where
     T: Clone + Eq + Hash + std::fmt::Debug,

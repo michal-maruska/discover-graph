@@ -1,4 +1,5 @@
 
+// this should be GraphLocalProvider because it's `local' only.
 /// Trait for providing vertices and edges on demand
 pub trait GraphProvider<T> {
     /// Get neighbors of a given vertex
@@ -9,4 +10,3 @@ pub trait GraphProvider<T> {
         true // Default implementation assumes all vertices exist
     }
 }
-

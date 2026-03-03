@@ -11,6 +11,23 @@ use tracing::debug;
 use std::collections::{HashMap};
 use std::hash::Hash;
 
+
+// none of the graph objects in petgraph suits us
+// So we use the depth_first_search(), which is much
+// more generic (`callback_based_traversal'), by providing it parameters based
+// on our Graph:
+
+// At the beginning we have an implicit graph. And we want
+// to have it explicit (numbers, edges). So we visit every
+// node and edges, gradually creating and using the explicit graph
+// to avoid visiting more than once.
+// At the end we can retrieve the graph.
+
+// dynamic graph  <-----> some API .. possibly costly queries for neighbors.
+//
+// while we search, we construct the graph itself, by calling ...
+// GraphProvider -- the API
+
 /// Main discoverer that uses the dynamic graph wrapper
 /// to invoke  `depth_first_search()'
 pub struct GraphDiscoverer<T, P>
@@ -44,39 +61,43 @@ where
 
         // Now we can use petgraph's depth_first_search directly!
         // The IntoNeighbors implementation will handle discovery automatically
-        depth_first_search(&self.dynamic_graph, Some(start_node), |event| {
-            match event {
-                DfsEvent::Discover(node_idx, _) => {
-                    if let Some(vertex) = self.dynamic_graph.get_vertex(node_idx) {
-                        debug!("DFS discovered: {:?}", vertex);
-                    }
-                    Control::<()>::Continue // too bad not default for that B type.
-                },
-                DfsEvent::TreeEdge(from, to) => {
-                    if let (Some(from_vertex), Some(to_vertex)) =
-                        (self.dynamic_graph.get_vertex(from), self.dynamic_graph.get_vertex(to)) {
-                            debug!("DFS tree edge: {:?} -> {:?}", from_vertex, to_vertex);
-                    }
-                    Control::Continue
-                },
-                DfsEvent::BackEdge(from, to) => {
-                    if let (Some(from_vertex), Some(to_vertex)) =
-                        (self.dynamic_graph.get_vertex(from), self.dynamic_graph.get_vertex(to)) {
-                        debug!("DFS back edge: {:?} -> {:?}", from_vertex, to_vertex);
-                    }
-                    Control::Continue
-                },
-                DfsEvent::Finish(node_idx, _) => {
-                    if let Some(vertex) = self.dynamic_graph.get_vertex(node_idx) {
-                        debug!("finished with {:?}", vertex);
-                        discovery_order.push(vertex.clone());
-                    }
-                    // self.dynamic_graph.graph.borrow().node_weight(node_idx));
-                    Control::Continue
-                },
-                _ => Control::Continue,
-            }
-        });
+        depth_first_search(
+            &self.dynamic_graph,
+            Some(start_node),
+            // notice: not moved: `discovery_order'
+            |event| {
+                match event {
+                    DfsEvent::Discover(node_idx, _) => {
+                        if let Some(vertex) = self.dynamic_graph.get_vertex(node_idx) {
+                            debug!("DFS discovered: {:?}", vertex);
+                        }
+                        Control::<()>::Continue // too bad not default for that B type.
+                    },
+                    DfsEvent::TreeEdge(from, to) => {
+                        if let (Some(from_vertex), Some(to_vertex)) =
+                            (self.dynamic_graph.get_vertex(from), self.dynamic_graph.get_vertex(to)) {
+                                debug!("DFS tree edge: {:?} -> {:?}", from_vertex, to_vertex);
+                            }
+                        Control::Continue
+                    },
+                    DfsEvent::BackEdge(from, to) => {
+                        if let (Some(from_vertex), Some(to_vertex)) =
+                            (self.dynamic_graph.get_vertex(from), self.dynamic_graph.get_vertex(to)) {
+                                debug!("DFS back edge: {:?} -> {:?}", from_vertex, to_vertex);
+                            }
+                        Control::Continue
+                    },
+                    DfsEvent::Finish(node_idx, _) => {
+                        if let Some(vertex) = self.dynamic_graph.get_vertex(node_idx) {
+                            debug!("finished with {:?}", vertex);
+                            discovery_order.push(vertex.clone());
+                        }
+                        // self.dynamic_graph.graph.borrow().node_weight(node_idx));
+                        Control::Continue
+                    },
+                    _ => Control::Continue,
+                }
+            });
 
         discovery_order
     }
