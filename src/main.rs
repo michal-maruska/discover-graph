@@ -1,13 +1,15 @@
-use discover_graph::{GraphDiscoverer,GraphProvider};
+use discover_graph::{GraphDiscoverer, NeighborEnumerator};
 
-use discover_graph::SimpleGraphProvider;
+use petgraph::graph::NodeIndex;
+
+use discover_graph::SimpleNeighborEnumerator;
 
 // Example with external data source
-pub struct ExternalDataProvider {
+pub struct ExternalNeighborEnumerator {
     call_count: usize,
 }
 
-impl ExternalDataProvider {
+impl ExternalNeighborEnumerator {
     pub fn new() -> Self {
         Self { call_count: 0 }
     }
@@ -28,7 +30,7 @@ impl ExternalDataProvider {
     }
 }
 
-impl GraphProvider<String> for ExternalDataProvider {
+impl NeighborEnumerator<String> for ExternalNeighborEnumerator {
     fn get_neighbors(&mut self, vertex: &String) -> Vec<String> {
         std::thread::sleep(std::time::Duration::from_millis(10));
         self.fetch_neighbors(vertex)
@@ -39,42 +41,31 @@ impl GraphProvider<String> for ExternalDataProvider {
     }
 }
 
-
-
 fn demonstrate_graph_access() {
     println!("=== Understanding Graph Access Patterns ===");
 
-    let provider = ExternalDataProvider::new();
-    let mut discoverer = GraphDiscoverer::new(provider);
+    let enumerator = ExternalNeighborEnumerator::new();
+    let discoverer = GraphDiscoverer::new(enumerator);
 
-    // 1. Perform discovery
-    let discovery_order = discoverer.dfs_discover("root".to_string()); // mmc: so here T = String
-    println!("Discovered: {:?}", discovery_order);
+    // 1. One-shot discovery: indices out, canonical graph + enumerator back.
+    //    (The vertices as values -- strings here -- live on the graph only.)
+    let (graph, _enumerator, order) = discoverer.dfs_discover_graph("root".to_string());
+    println!("Discovered: {:?}", order.iter().map(|&i| graph[i].clone()).collect::<Vec<_>>());
 
-    // 2. Access the "snapshot" StableDiGraph (no further discovery)
-    let static_graph = discoverer.get_graph();
+    // 2. The graph is an ordinary petgraph StableDiGraph afterwards:
+    //    run anything petgraph has on it.
     println!("\n--- Graph Snapshot Analysis ---");
-    println!("Nodes: {}, Edges: {}", static_graph.node_count(), static_graph.edge_count());
-
-    // You can use any petgraph algorithm on this:
-    for node_idx in static_graph.node_indices() {
-        if let Some(vertex) = static_graph.node_weight(node_idx) {
-            let neighbor_count = static_graph.neighbors(node_idx).count();
-            println!("Vertex {:?} has {} neighbors (static view)", vertex, neighbor_count);
-        }
+    println!("Nodes: {}, Edges: {}", graph.node_count(), graph.edge_count());
+    for node_idx in graph.node_indices() {
+        let neighbor_count = graph.neighbors(node_idx).count();
+        println!("Vertex {:?} has {} neighbors (static view)", graph[node_idx], neighbor_count);
     }
 
-    // 3. Access the dynamic wrapper (can trigger more discovery)
-    let dynamic_graph = discoverer.get_dynamic_graph();
-    println!("\n--- Dynamic Graph Wrapper ---");
-    println!("Discovery calls made: {}", dynamic_graph.discovered_count());
-
-    // 4. The key difference:
+    // 3. What used to be "static vs dynamic" here:
     println!("\n--- Key Difference ---");
-    println!("static_graph.neighbors() -> Uses existing edges only");
-    println!("dynamic_graph (via IntoNeighbors) -> May discover new neighbors");
+    println!("petgraph on the returned graph   -> uses existing edges only");
+    println!("DiscoverableGraph (IntoNeighbors) -> explodes nodes first, may discover more");
 }
-
 
 fn main() {
     demonstrate_graph_access();
@@ -82,38 +73,31 @@ fn main() {
     println!("\n=== Dynamic Graph Discovery with IntoNeighbors ===");
 
     println!("\n--- Simple Numeric Graph ---");
-    let provider = SimpleGraphProvider::new(3, 2);
-    let mut discoverer = GraphDiscoverer::new(provider);
-    let discovery_order = discoverer.dfs_discover(1);
-    println!("Discovery order: {:?}", discovery_order);
+    let enumerator = SimpleNeighborEnumerator::new(3, 2);
+    let mut discoverer = GraphDiscoverer::new(enumerator);
+    let order = discoverer.dfs_discover(1);
+    println!("Discovery order (NodeIndex): {:?}", order);
     println!("Discovered {} vertices with {} edges",
              discoverer.discovered_count(),
              discoverer.edges_count());
 
     println!("\n--- External Data Source ---");
-    let provider = ExternalDataProvider::new();
-    let mut discoverer = GraphDiscoverer::new(provider);
-    let discovery_order = discoverer.dfs_discover("root".to_string());
-    println!("Discovery order: {:?}", discovery_order);
+    let enumerator = ExternalNeighborEnumerator::new();
+    let mut discoverer = GraphDiscoverer::new(enumerator);
+    let order = discoverer.dfs_discover("root".to_string());
+    let snapshot = discoverer.get_dynamic_graph().get_graph_snapshot();
+    let labels: Vec<&str> = order.iter().map(|&i| snapshot[i].as_str()).collect();
+    println!("Discovery order: {:?}", labels);
     println!("Discovered {} vertices with {} edges",
              discoverer.discovered_count(),
              discoverer.edges_count());
 
-    println!("\n--- Using DFS Iterator ---");
-    let provider = ExternalDataProvider::new();
-    let mut discoverer = GraphDiscoverer::new(provider);
-    let discovery_order = discoverer.dfs_discover_iterator("root".to_string());
-    println!("Discovery order (iterator): {:?}", discovery_order);
-
-    // Print final graph structure
+    // Print final graph structure (still discovering piecewise: session API)
     println!("\nFinal graph structure:");
-    let graph = discoverer.get_graph();
-    for node_idx in graph.node_indices() {
-        if let Some(vertex) = graph.node_weight(node_idx) {
-            let neighbors: Vec<_> = graph.neighbors(node_idx)
-                .filter_map(|n| graph.node_weight(n))
-                .collect();
-            println!("  {:?} -> {:?}", vertex, neighbors);
-        }
+    for node_idx in snapshot.node_indices() {
+        let neighbors: Vec<_> = snapshot.neighbors(node_idx)
+            .filter_map(|n| snapshot.node_weight(n))
+            .collect();
+        println!("  {:?} -> {:?}", &*snapshot[node_idx], neighbors);
     }
 }

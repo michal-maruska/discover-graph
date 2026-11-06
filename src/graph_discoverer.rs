@@ -1,14 +1,13 @@
 #[allow(dead_code)]
 
-use crate::graph_provider::GraphProvider;
-use crate::dynamic_graph::DynamicGraph;
+use crate::neighbors_enumerator::NeighborEnumerator;
+use crate::discoverable_graph::DiscoverableGraph;
 
 use petgraph::graph::{NodeIndex};
 use petgraph::visit::{depth_first_search, DfsEvent, Control};
 use petgraph::stable_graph::{StableDiGraph};
 
 use tracing::debug;
-use std::collections::{HashMap};
 use std::hash::Hash;
 
 
@@ -26,133 +25,107 @@ use std::hash::Hash;
 // dynamic graph  <-----> some API .. possibly costly queries for neighbors.
 //
 // while we search, we construct the graph itself, by calling ...
-// GraphProvider -- the API
+// NeighborEnumerator -- the API
 
-/// Main discoverer that uses the dynamic graph wrapper
-/// to invoke  `depth_first_search()'
+/// Driver of piecewise discovery.
+///
+/// A `GraphDiscoverer` owns one `DiscoverableGraph` and one session:
+/// run `dfs_discover` (from as many roots as you like) while you keep
+/// discovering, or go one-shot with `dfs_discover_graph`.
+/// Either way the output is indices; the vertex *values* live in the graph.
 pub struct GraphDiscoverer<T, P>
 where
     T: Clone + Eq + Hash + std::fmt::Debug,
-    P: GraphProvider<T>,
+    P: NeighborEnumerator<T>,
 {
-    dynamic_graph: DynamicGraph<T, P>,
+    dynamic_graph: DiscoverableGraph<T, P>,
 }
+
+// maybe  DynamicGraphDiscoverer
 
 impl<T, P> GraphDiscoverer<T, P>
 where
     T: Clone + Eq + Hash + std::fmt::Debug,
-    P: GraphProvider<T>,
+    P: NeighborEnumerator<T>,
 {
     pub fn new(provider: P) -> Self {
         Self {
-            dynamic_graph: DynamicGraph::new(provider),
+            dynamic_graph: DiscoverableGraph::new(provider),
         }
     }
 
-    /// Perform DFS using petgraph's depth_first_search with dynamic discovery
-    pub fn dfs_discover(&mut self, start: T) -> Vec<T> {
-        let start_node = match self.dynamic_graph.add_start_vertex(start) {
-            // inside the graph.
-            Some(node) => node,
-            None => return Vec::new(),
+    /// Perform DFS from a seed vertex.  Incremental: the discoverer (and its
+    /// discovered graph) stays alive for further `dfs_discover` runs, so you
+    /// can feed several roots into the same graph over time.
+    ///
+    /// Returns the traversal order as `Vec<NodeIndex>` -- indices, not labels;
+    /// weights are on the graph (`get_dynamic_graph`, or the one-shot door).
+    pub fn dfs_discover(&mut self, start: T) -> Vec<NodeIndex> {
+        let Some(start_node) = self.dynamic_graph.add_start_vertex(start) else {
+            // the enumerator refused the seed
+            return Vec::new();
         };
+        self.run_dfs(start_node)
+    }
 
-        let mut discovery_order = Vec::new();
+    /// One-shot discovery: seed, walk (same DFS), and exit.
+    ///
+    /// Consumes the discoverer, discards the scaffolding (memoize-set,
+    /// valueless index -- by then both encode nothing but what the graph
+    /// itself shows) and hands over the canonical parts:
+    /// the graph (owner of the vertex values) plus the `NeighborEnumerator`
+    /// back, which was the external API all along and may carry session
+    /// state of its own.
+    pub fn dfs_discover_graph(mut self, start: T)
+        -> (StableDiGraph<T, ()>, P, Vec<NodeIndex>)
+    {
+        let order = self.dfs_discover(start);
+        let DiscoverableGraph { graph, provider, .. } = self.dynamic_graph;
+        (graph.into_inner(), provider.into_inner(), order)
+    }
+
+    fn run_dfs(&mut self, start_node: NodeIndex) -> Vec<NodeIndex> {
+        let mut order: Vec<NodeIndex> = Vec::new();
 
         // Now we can use petgraph's depth_first_search directly!
         // The IntoNeighbors implementation will handle discovery automatically
         depth_first_search(
             &self.dynamic_graph,
             Some(start_node),
-            // notice: not moved: `discovery_order'
+            // notice: not moved: `order'
             |event| {
                 match event {
                     DfsEvent::Discover(node_idx, _) => {
-                        if let Some(vertex) = self.dynamic_graph.get_vertex(node_idx) {
-                            debug!("DFS discovered: {:?}", vertex);
-                        }
+                        debug!("DFS discovered node: {:?}", node_idx);
                         Control::<()>::Continue // too bad not default for that B type.
                     },
                     DfsEvent::TreeEdge(from, to) => {
-                        if let (Some(from_vertex), Some(to_vertex)) =
-                            (self.dynamic_graph.get_vertex(from), self.dynamic_graph.get_vertex(to)) {
-                                debug!("DFS tree edge: {:?} -> {:?}", from_vertex, to_vertex);
-                            }
+                        debug!("DFS tree edge: {:?} -> {:?}", from, to);
                         Control::Continue
                     },
                     DfsEvent::BackEdge(from, to) => {
-                        if let (Some(from_vertex), Some(to_vertex)) =
-                            (self.dynamic_graph.get_vertex(from), self.dynamic_graph.get_vertex(to)) {
-                                debug!("DFS back edge: {:?} -> {:?}", from_vertex, to_vertex);
-                            }
+                        debug!("DFS back edge: {:?} -> {:?}", from, to);
                         Control::Continue
                     },
                     DfsEvent::Finish(node_idx, _) => {
-                        if let Some(vertex) = self.dynamic_graph.get_vertex(node_idx) {
-                            debug!("finished with {:?}", vertex);
-                            discovery_order.push(vertex.clone());
-                        }
-                        // self.dynamic_graph.graph.borrow().node_weight(node_idx));
+                        debug!("finished with node {:?}", node_idx);
+                        order.push(node_idx);
                         Control::Continue
                     },
                     _ => Control::Continue,
                 }
             });
 
-        discovery_order
+        order
     }
-
-    /// Alternative: Use petgraph's Dfs iterator directly
-    pub fn dfs_discover_iterator(&mut self, start: T) -> Vec<T> {
-        let start_node = match self.dynamic_graph.add_start_vertex(start) {
-            Some(node) => node,
-            None => return Vec::new(),
-        };
-
-        let mut discovery_order = Vec::new();
-        let mut dfs = petgraph::visit::Dfs::new(&self.dynamic_graph, start_node);
-
-        while let Some(node_idx) = dfs.next(&self.dynamic_graph) {
-            if let Some(vertex) = self.dynamic_graph.get_vertex(node_idx) {
-                discovery_order.push(vertex);
-            }
-        }
-
-        discovery_order
-    }
-
-    /// Get the discovered graph - returns immutable reference to the underlying StableDiGraph
-    ///
-    /// This provides access to the petgraph data structure after discovery is complete.
-    /// You can use this for:
-    /// - Analyzing graph structure (node_count, edge_count, etc.)
-    /// - Running other petgraph algorithms on the discovered graph
-    /// - Accessing node weights and edge data
-    /// - Manual traversal using petgraph's iterators
-    ///
-    /// Note: This returns a snapshot of the StableDiGraph, not the DynamicGraph wrapper,
-    /// so it won't trigger further discovery if you traverse it.
-    pub fn get_graph(&self) -> StableDiGraph<T, ()> {
-        self.dynamic_graph.get_graph_snapshot()
-    }
-
-
-    pub fn get_provider(self) -> (P, HashMap<T, NodeIndex>) {
-        // Ref<'_, T>
-        return (
-            self.dynamic_graph.provider.into_inner(),
-            self.dynamic_graph.vertex_to_node.into_inner()
-        )
-    }
-
 
     /// Get access to the dynamic wrapper (for further discovery operations)
-    pub fn get_dynamic_graph(&self) -> &DynamicGraph<T, P> {
+    pub fn get_dynamic_graph(&self) -> &DiscoverableGraph<T, P> {
         &self.dynamic_graph
     }
 
     /// Get a mutable reference to the dynamic wrapper
-    pub fn get_dynamic_graph_mut(&mut self) -> &mut DynamicGraph<T, P> {
+    pub fn get_dynamic_graph_mut(&mut self) -> &mut DiscoverableGraph<T, P> {
         &mut self.dynamic_graph
     }
 

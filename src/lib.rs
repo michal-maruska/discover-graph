@@ -1,29 +1,28 @@
 mod dynamic_bit_set;
 
-mod graph_provider;
-pub use graph_provider::GraphProvider;
+mod neighbors_enumerator;
+pub use neighbors_enumerator::NeighborEnumerator;
 
-mod dynamic_graph;
+mod discoverable_graph;
 
 mod graph_discoverer;
 pub use graph_discoverer::GraphDiscoverer;
 
-
 // mod simple {
 // fixme: for testing only!
-// Example implementation of GraphProvider for a simple numeric graph
-pub struct SimpleGraphProvider {
+// Example implementation of a NeighborEnumerator for a simple numeric graph
+pub struct SimpleNeighborEnumerator {
     max_depth: usize,
     branching_factor: usize,
 }
 
-impl SimpleGraphProvider {
+impl SimpleNeighborEnumerator {
     pub fn new(max_depth: usize, branching_factor: usize) -> Self {
         Self { max_depth, branching_factor }
     }
 }
 
-impl GraphProvider<i32> for SimpleGraphProvider {
+impl NeighborEnumerator<i32> for SimpleNeighborEnumerator {
     fn get_neighbors(&mut self, vertex: &i32) -> Vec<i32> {
         if *vertex >= (self.max_depth as i32).pow(self.branching_factor as u32) {
             return Vec::new();
@@ -39,43 +38,21 @@ impl GraphProvider<i32> for SimpleGraphProvider {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // discovery hands out indices; values live on the graph
     #[test]
     fn test_dynamic_discovery() {
-        let provider = SimpleGraphProvider::new(2, 2);
-        let mut discoverer = GraphDiscoverer::new(provider);
+        let enumerator = SimpleNeighborEnumerator::new(2, 2);
+        let mut discoverer = GraphDiscoverer::new(enumerator);
 
-        let result = discoverer.dfs_discover(1);
-        assert!(!result.is_empty());
-        assert!(result.contains(&1));
+        let order = discoverer.dfs_discover(1);
+        assert!(!order.is_empty());
         assert!(discoverer.discovered_count() > 0);
-    }
 
-
-    /*
-    #[ignore]
-    #[test]
-    fn test_external_provider_discovery() {
-        let provider = ExternalDataProvider::new();
-        let mut discoverer = GraphDiscoverer::new(provider);
-
-        let result = discoverer.dfs_discover("root".to_string());
-        assert!(result.contains(&"root".to_string()));
-        assert!(result.len() > 1);
-    }
-    */
-
-    #[test]
-    fn test_dfs_iterator() {
-        let provider = SimpleGraphProvider::new(2, 2);
-        let mut discoverer = GraphDiscoverer::new(provider);
-
-        let result = discoverer.dfs_discover_iterator(1);
-        assert!(!result.is_empty());
-        assert!(result.contains(&1));
+        let (graph, _enumerator, order) = discoverer.dfs_discover_graph(1);
+        assert!(order.iter().any(|&i| graph[i] == 1));
     }
 }
