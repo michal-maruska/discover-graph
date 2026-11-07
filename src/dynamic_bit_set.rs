@@ -3,8 +3,9 @@ use petgraph::stable_graph::{IndexType};
 use fixedbitset::FixedBitSet;
 
 // Implement VisitMap trait for a new type - DynamicBitSet
-
-
+// FixedBitSet provides all the functionality, but its VisitMap
+// implementation is not good:
+// we need to add on visit/query.
 
 /// Dynamic bit set that wraps FixedBitSet and can grow as needed
 #[derive(Clone)]
@@ -12,6 +13,7 @@ pub struct DynamicBitSet {
     inner: FixedBitSet,
 }
 
+// so it's only growing.
 impl DynamicBitSet {
     pub fn new() -> Self {
         Self {
