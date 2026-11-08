@@ -111,7 +111,7 @@ where
     /// on its first `next()`.  Identity is the NodeIndex: the graph owns the
     /// vertex value, so the enumerator is called with a borrow straight out
     /// of the canonical weight.
-    fn explode_node(&self, node_idx: NodeIndex) {
+    pub(crate) fn explode_node(&self, node_idx: NodeIndex) {
         // Check if already exploded
         {
             let discovered = self.discovered.borrow();

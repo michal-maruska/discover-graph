@@ -1,7 +1,5 @@
 use discover_graph::{GraphDiscoverer, NeighborEnumerator};
 
-use petgraph::graph::NodeIndex;
-
 use discover_graph::SimpleNeighborEnumerator;
 
 // Example with external data source

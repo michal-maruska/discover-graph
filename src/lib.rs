@@ -55,4 +55,48 @@ mod tests {
         let (graph, _enumerator, order) = discoverer.dfs_discover_graph(1);
         assert!(order.iter().any(|&i| graph[i] == 1));
     }
+
+    // Enumerator that knows its universe: sweep discovery must reach every
+    // vertex, unify shared neighbors into one node, and call the
+    // enumerator exactly once per vertex.
+    struct KnownUniverse {
+        universe: Vec<i32>,
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl NeighborEnumerator<i32> for KnownUniverse {
+        fn get_neighbors(&mut self, vertex: &i32) -> Vec<i32> {
+            self.calls.set(self.calls.get() + 1);
+            match *vertex {
+                1 => vec![2, 3],
+                2 => vec![3],
+                _ => Vec::new(),
+            }
+        }
+
+        fn known_vertices(&mut self) -> Option<Vec<i32>> {
+            Some(self.universe.clone())
+        }
+    }
+
+    #[test]
+    fn test_whole_graph_discovery() {
+        // only vertex 1 seeded; 2 and 3 must be discovered via sweep
+        let enumerator = KnownUniverse { universe: vec![1], calls: std::cell::Cell::new(0) };
+        let (graph, enumerator) = GraphDiscoverer::new(enumerator).discover_whole_graph();
+
+        assert_eq!(graph.node_count(), 3);      // 1, 2, 3 (3 unified: reached twice)
+        assert_eq!(graph.edge_count(), 3);      // 1->2, 1->3, 2->3
+        assert_eq!(enumerator.calls.get(), 3);  // exactly once per vertex
+    }
+
+    #[test]
+    fn test_whole_graph_discovery_dedup_seed() {
+        // seeding the same universe twice must not duplicate anything
+        let enumerator = KnownUniverse { universe: vec![1, 1, 2], calls: std::cell::Cell::new(0) };
+        let (graph, enumerator) = GraphDiscoverer::new(enumerator).discover_whole_graph();
+
+        assert_eq!(graph.node_count(), 3);
+        assert_eq!(enumerator.calls.get(), 3);
+    }
 }

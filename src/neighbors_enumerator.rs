@@ -14,6 +14,14 @@ pub trait NeighborEnumerator<T> {
     /// Enumerate the neighbors of a vertex.
     fn get_neighbors(&mut self, vertex: &T) -> Vec<T>;
 
+    /// The universe known to the enumerator.
+    /// Default: unknown (None) -- discovery then stays
+    /// seed-driven (`dfs_discover`).  Used by
+    /// `GraphDiscoverer::discover_whole_graph`.
+    fn known_vertices(&mut self) -> Option<Vec<T>> {
+        None
+    }
+
     /// Validate a vertex before it enters the graph (optional).
     fn vertex_exists(&mut self, _vertex: &T) -> bool {
         true // Default implementation assumes all vertices exist

@@ -84,6 +84,47 @@ where
         (graph.into_inner(), provider.into_inner(), order)
     }
 
+    /// Whole-graph discovery to fixpoint: seed *every* vertex the
+    /// enumerator knows (`NeighborEnumerator::all_vertices`; None ->
+    /// whatever is already seeded), then sweep-explode every node until a
+    /// sweep adds nothing new.  For acyclic data this terminates with the
+    /// complete reach; even cyclic data terminates (explosions are
+    /// memoized) -- it just produces no source nodes.
+    ///
+    /// No DFS here: with the universe seeded, every node must be exploded
+    /// anyway, so the sweep subsumes the traversal.
+    pub fn discover_whole_graph(self) -> (StableDiGraph<T, ()>, P) {
+        let universe = self.dynamic_graph.provider.borrow_mut().known_vertices();
+        if let Some(vertices) = universe {
+            for vertex in vertices {
+                self.dynamic_graph.add_start_vertex(vertex);
+            }
+        }
+
+        // Seed-explosion sweep: everything present gets exploded; nodes
+        // that appear during a sweep are exploded by the next one;
+        // a full sweep adding no vertex means done.  (Comparing node
+        // counts, not explosion counts: an explosion of an old node can
+        // still materialize new vertices.)
+        loop {
+            let nodes_before = self.dynamic_graph.graph.borrow().node_count();
+            let snapshot: Vec<NodeIndex> = {
+                let graph = self.dynamic_graph.graph.borrow();
+                graph.node_indices().collect()
+            };
+            for node_idx in snapshot {
+                self.dynamic_graph.explode_node(node_idx);
+            }
+            if self.dynamic_graph.graph.borrow().node_count() == nodes_before {
+                break;
+            }
+        }
+
+        let DiscoverableGraph { graph, provider, .. } = self.dynamic_graph;
+        let graph = graph.into_inner();
+        (graph, provider.into_inner())
+    }
+
     fn run_dfs(&mut self, start_node: NodeIndex) -> Vec<NodeIndex> {
         let mut order: Vec<NodeIndex> = Vec::new();
 
