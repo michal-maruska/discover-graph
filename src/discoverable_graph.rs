@@ -2,9 +2,11 @@ use petgraph::graph::{NodeIndex,DefaultIx};
 use petgraph::visit::{IntoNeighbors, GraphBase, Visitable};
 use petgraph::stable_graph::{StableDiGraph};
 
-use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
 use std::cell::RefCell;
+
+use fixedbitset::FixedBitSet;
 
 use tracing::debug;
 
@@ -48,8 +50,9 @@ where
     // hash(query) -> candidates, Eq resolved against the graph weights.
 
     // have this node's neighbors ever been requested from the enumerator?
-    // NodeIndex-keyed: identity, not value.
-    discovered: RefCell<HashSet<NodeIndex>>,
+    // NodeIndex-keyed (identity, not value) -- and a bitset, because the
+    // NodeId space is dense: StableGraph never reuses nor renumbers slots.
+    discovered: RefCell<FixedBitSet>,
     pub(crate) provider: RefCell<P>,
 }
 
@@ -62,7 +65,7 @@ where
         Self {
             graph: RefCell::new(StableDiGraph::new()),
             vertex_to_node: RefCell::new(HashMap::new()),
-            discovered: RefCell::new(HashSet::new()),
+            discovered: RefCell::new(FixedBitSet::with_capacity(0)),
             provider: RefCell::new(provider),
         }
     }
@@ -112,13 +115,19 @@ where
     /// vertex value, so the enumerator is called with a borrow straight out
     /// of the canonical weight.
     pub(crate) fn explode_node(&self, node_idx: NodeIndex) {
-        // Check if already exploded
-        {
-            let discovered = self.discovered.borrow();
-            if discovered.contains(&node_idx) {
-                return;
-            }
+        // Check if already exploded, atomically in one borrow.
+        // The bitset grows on demand (node slots are appended -> widen
+        // the one node whose explosion we are doing right now).
+        let idx = node_idx.index();
+        let mut discovered = self.discovered.borrow_mut();
+        if idx >= discovered.len() {
+            discovered.grow(idx + 1);
         }
+        if discovered.contains(idx) {
+            return;
+        }
+        discovered.insert(idx);
+        drop(discovered);
 
         // Get neighbors from the enumerator -- borrowing the vertex from the
         // graph; no copy crosses into or out of this block (T stays put).
@@ -129,8 +138,9 @@ where
             self.provider.borrow_mut().get_neighbors(vertex)
         };
 
-        // Mark as explored (per-node, so a u32 index is enough)
-        self.discovered.borrow_mut().insert(node_idx);
+        // Mark as explored -- done above, in the same borrow: the check
+        // (contains) and the registration (insert) are one atomic step,
+        // and the enumerator runs exactly once per node, ever.
 
         debug!("Explosion of node {:?} yielded {} neighbors", node_idx, neighbors.len());
 
@@ -171,7 +181,12 @@ where
     }
 
     pub fn discovered_count(&self) -> usize {
-        self.discovered.borrow().len()
+        // fixedbitset caches only the bit *width*, not the popcount:
+        // sum the set bits over the words (Block = u32 in 0.5).
+        self.discovered.borrow().as_slice()
+            .iter()
+            .map(|w| w.count_ones() as usize)
+            .sum()
     }
 
     pub fn edges_count(&self) -> usize {
