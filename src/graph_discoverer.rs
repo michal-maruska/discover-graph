@@ -60,8 +60,8 @@ where
     ///
     /// Returns the traversal order as `Vec<NodeIndex>` -- indices, not labels;
     /// weights are on the graph (`get_dynamic_graph`, or the one-shot door).
-    pub fn dfs_discover(&mut self, start: T) -> Vec<NodeIndex> {
-        let Some(start_node) = self.dynamic_graph.add_start_vertex(start) else {
+    pub fn dfs_discover(&mut self, seed: T) -> Vec<NodeIndex> {
+        let Some(start_node) = self.dynamic_graph.add_seed(seed) else {
             // the enumerator refused the seed
             return Vec::new();
         };
@@ -76,20 +76,29 @@ where
     /// the graph (owner of the vertex values) plus the `NeighborEnumerator`
     /// back, which was the external API all along and may carry session
     /// state of its own.
-    pub fn dfs_discover_graph(mut self, start: T)
+    pub fn dfs_discover_graph(mut self, seed: T)
         -> (StableDiGraph<T, ()>, P, Vec<NodeIndex>)
     {
-        let order = self.dfs_discover(start);
+        let order = self.dfs_discover(seed);
         let DiscoverableGraph { graph, provider, .. } = self.dynamic_graph;
         (graph.into_inner(), provider.into_inner(), order)
     }
 
-    /// Whole-graph discovery to fixpoint: seed *every* vertex the
-    /// enumerator knows (`NeighborEnumerator::all_vertices`; None ->
-    /// whatever is already seeded), then sweep-explode every node until a
-    /// sweep adds nothing new.  For acyclic data this terminates with the
-    /// complete reach; even cyclic data terminates (explosions are
-    /// memoized) -- it just produces no source nodes.
+    /// Whole-graph discovery to fixpoint: seed the vertices the enumerator
+    /// offers (`NeighborEnumerator::known_vertices`; None -> whatever is
+    /// already seeded), then sweep-explode every node until a sweep adds
+    /// nothing new.
+    ///
+    /// IMPORTANT semantics: the offered list is treated as a *seed set*,
+    /// not as a trusted closure of the world.  The result is therefore
+    /// everything **reachable from that seed set** -- if the enumerator
+    /// offers only a strict subset, vertices outside its transitive
+    /// closure stay undiscovered.  For a true whole-graph answer the
+    /// universe must close over `get_neighbors` (in the git case:
+    /// segments + sums are assumed to, and the top-complement cross-check
+    /// verifies it).  Acyclic data terminates with the complete reach;
+    /// even cyclic data terminates (explosions are memoized per node) --
+    /// it just produces no source/top nodes.
     ///
     /// No DFS here: with the universe seeded, every node must be exploded
     /// anyway, so the sweep subsumes the traversal.
@@ -97,7 +106,7 @@ where
         let universe = self.dynamic_graph.provider.borrow_mut().known_vertices();
         if let Some(vertices) = universe {
             for vertex in vertices {
-                self.dynamic_graph.add_start_vertex(vertex);
+                self.dynamic_graph.add_seed(vertex);
             }
         }
 

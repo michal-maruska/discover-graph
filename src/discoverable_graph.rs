@@ -150,8 +150,10 @@ where
         }
     }
 
-    // seed
-    pub fn add_start_vertex(&self, vertex: T) -> Option<NodeIndex> {
+    /// Add a seed vertex: drop a vertex into the graph *before* any
+    /// traversal (the glossary's "seed" -- many seeds are allowed over a
+    /// session; "start" would suggest exactly one).
+    pub fn add_seed(&self, vertex: T) -> Option<NodeIndex> {
         if self.provider.borrow_mut().vertex_exists(&vertex) {
             Some(self.get_or_create_node(vertex))
         } else {
