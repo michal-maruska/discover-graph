@@ -148,6 +148,7 @@ where
         for neighbor in neighbors {
             if self.provider.borrow_mut().vertex_exists(&neighbor) {
                 // external node -> graph node (the owned `neighbor' moves in)
+                // this is the `unification':
                 let neighbor_node = self.get_or_create_node(neighbor);
 
                 // Add edge if not yet registered
